@@ -3,8 +3,8 @@ import numpy as np
 from scipy.optimize import fmin
 from scipy.spatial.distance import cdist
 
-import models
-import fielderrors as fe
+import fieldmodel.fielderrors as fe
+import fieldmodel.models as models
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
