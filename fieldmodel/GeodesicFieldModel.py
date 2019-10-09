@@ -1,16 +1,14 @@
 import pandas as pd
 import numpy as np
-from scipy.optimize import fmin
+from scipy.optimize import minimize, Bounds
 from scipy.spatial.distance import cdist
 
 import fieldmodel.fielderrors as fe
 import fieldmodel.models as models
+import fieldmodel.utilities as util
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-
-from multiprocessing import Pool
-from multiprocessing.pool import ThreadPool
 
 class FieldModel(object):
 
@@ -30,18 +28,27 @@ class FieldModel(object):
 
     Parameters:
     - - - - -
+    amplitude: bool
+        whether to fit amplitude or not
+    r: float
+        intial estimate of sigma
+    peak_size: float / int
+        minimum geodesic distance between peaks
+        larger values results in fewer peaks
+    hood_size: float / int
+        maximum distance away from peaks to include in search
+        large values between larger neighborhood
     """
 
-    def __init__(self, r=10, amplitude=True):
-
-        """
-        
-        """
+    def __init__(self, r=10, amplitude=False,
+                 peak_size=15, hood_size=20):
 
         self.r = 10
         self.amplitude = amplitude
+        self.peak_size = peak_size
+        self.hood_size = hood_size
     
-    def fit(self, distances, data):
+    def fit(self, distances, data, x, y):
 
         """
         Parameters:
@@ -50,39 +57,56 @@ class FieldModel(object):
             distance matrix between all pairs of points in a region
         data: float, array
             scalar field to fit parameters to
-        p0: list
-            must be of length (n_components) * (n_params)
-            where n_params is the number of parameters in
-            the Gaussian model
         """
 
-        pool = ThreadPool()
+        self.data = data
+        self.x = x
+        self.y = y
 
-        [n,_] = distances.shape
+        [n, _] = distances.shape
 
-        A = [distances[i, :] for i in np.arange(10)]
-        P = pool.map(self.minimize, A, data)
+        if self.amplitude:
+            params = np.zeros((n, 3))
+        else:
+            params = np.zeros((n, 2))
+        [n, d] = params.shape
 
-        self.cost_ = P
-        self.mu_ = np.argmin(self.cost_)
+        peaks = util.find_peaks(distances, data, n_size=self.peak_size)
+        [gmax, _] = util.global_peak(distances, data, peaks, n_size=10)
+        nhood = util.peak_neighborhood(distances, [gmax], n_size=self.hood_size)
+
+        idx = np.zeros((n,))
+        idx[nhood] = 1
+        idx = ~idx.astype(np.bool)
+        params[idx, :] = np.nan
+
+        print('Searching over %.2f%% samples.' % (100*len(nhood) / data.shape[0]))
+        
+        for idx in nhood:
+            [p, c] = self.mini(distances[idx, :])
+            params[idx, :-1] = p
+            params[idx, -1] = c
+
+        self.params = params
+        self.mu_ = np.nanargmin(params[:, -1])
+        self.sigma_ = params[self.mu_, -1*(d)]
+        self.dist_ = distances[self.mu_, :]
 
         self.fitted = True
 
-    def minimize(self, dist, field):
+    def mini(self, dist):
 
-        if self.amplitude:
-            a0 = [1, self.r*2]
-        else:
-            a0 = [self.r*2]
+        a0 = [self.r*2]
+        bds = Bounds(0.001, np.min([self.x.std(), self.y.std()]))
 
-        T = fmin(self.error, a0, 
-                 args=(dist, field), maxiter=10000,
-                 disp=False)
+        T = minimize(self.error, a0, 
+                 args=(dist, self.data),
+                 bounds=(bds))
 
-        print(T)
-        cost = T
+        p = T.x
+        c = T.fun
 
-        return cost
+        return [p, c]
 
     def error(self, params, dist, field):
 
@@ -93,7 +117,7 @@ class FieldModel(object):
         density = models.geodesic(dists=dist, params=params)
         merror = fe.correlation(field, density)
             
-        return
+        return merror
 
     def plot(self):
 
@@ -112,14 +136,8 @@ class FieldModel(object):
         ax1.set_ylabel('Y', fontsize=15)
         plt.colorbar(img1, ax=ax1)
 
-        if self.density == 'gaussian':
-            L = models.gaussian(self.x, self.y, self.coefs_).squeeze()
-        else:
-            L = models.student(self.x, self.y, self.nu, self.coefs_).squeeze()
-        
-        if self.fit_amplitude:
-            L = self.amp_ * L
-        
+        L = models.geodesic(self.dist_, [self.sigma_])
+
         lcmap = mpl.cm.jet
         lnorm = mpl.colors.Normalize(vmin=L.min(), vmax=L.max())
 

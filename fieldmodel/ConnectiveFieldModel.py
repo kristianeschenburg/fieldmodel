@@ -73,7 +73,6 @@ class FieldModel(object):
             the Gaussian model
         """
 
-        n = len(x)
         opterror = self.opterror
         density = self.density
 

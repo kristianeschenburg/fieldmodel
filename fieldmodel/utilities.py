@@ -6,6 +6,27 @@ from matplotlib import cm
 
 from scipy.stats import ks_2samp
 
+def peak_neighborhood(apsp, peaks, n_size):
+
+    """
+    Find vertices in neighborhood of peak vertices.
+
+    Parameters:
+    apsp: float / int, array
+        all-pairs shortest path matrix between all samples
+    peaks: list
+        indices of local maxima
+    n_size: float / int
+        maximum geodesic distance from peaks
+    """
+
+    dpeaks = apsp[peaks, :]
+    idx = np.where(dpeaks < n_size)
+
+    nhood = np.unique(idx)
+
+    return nhood
+
 def find_peaks(apsp, data, n_size):
     
     """
