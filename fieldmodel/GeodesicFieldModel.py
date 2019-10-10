@@ -41,16 +41,22 @@ class FieldModel(object):
     """
 
     def __init__(self, r=10, amplitude=False,
-                 peak_size=15, hood_size=20):
+                 peak_size=15, hood_size=20,
+                 verbose=False):
 
         self.r = 10
-        self.amplitude = amplitude
         self.peak_size = peak_size
         self.hood_size = hood_size
-    
+        self.verbose = verbose
+
     def fit(self, distances, data, x, y):
 
         """
+        Estimate the location and scale parameters of the geodesic Gaussian.
+        Finds a list of local maxima, estimates the global maxima, and then
+        searches the neighborhood of this global maximum to best fit the
+        location and scale parameters.
+
         Parameters:
         - - - - -
         distance, float, array
@@ -62,17 +68,20 @@ class FieldModel(object):
         self.data = data
         self.x = x
         self.y = y
+        self.up = distances.max()/2
 
         [n, _] = distances.shape
+        params = np.zeros((n, 2))
+        [n, m] = params.shape
 
-        if self.amplitude:
-            params = np.zeros((n, 3))
-        else:
-            params = np.zeros((n, 2))
-        [n, d] = params.shape
-
+        # find local maxima in scalar field
         peaks = util.find_peaks(distances, data, n_size=self.peak_size)
+
+        # estimate global maximum
+        # based on highest mean signal in neighborhood of each local maxima
         [gmax, _] = util.global_peak(distances, data, peaks, n_size=10)
+
+        # restrict location search space to neighborhood of global max
         nhood = util.peak_neighborhood(distances, [gmax], n_size=self.hood_size)
 
         idx = np.zeros((n,))
@@ -80,16 +89,22 @@ class FieldModel(object):
         idx = ~idx.astype(np.bool)
         params[idx, :] = np.nan
 
-        print('Searching over %.2f%% samples.' % (100*len(nhood) / data.shape[0]))
-        
+        if self.verbose:
+            print('Searching over %.2f%% samples.' % (100*len(nhood) / data.shape[0]))
+
+        # iterate over neighborhood points
+        # compute cost for each point
         for idx in nhood:
             [p, c] = self.mini(distances[idx, :])
             params[idx, :-1] = p
             params[idx, -1] = c
 
-        self.params = params
+        self.nhood_ = nhood
+        self.scales_ = params[:, -1*m]
+        self.costs_ = params[:, -1]
+
         self.mu_ = np.nanargmin(params[:, -1])
-        self.sigma_ = params[self.mu_, -1*(d)]
+        self.sigma_ = params[self.mu_, -1*m]
         self.dist_ = distances[self.mu_, :]
 
         self.fitted = True
@@ -97,9 +112,9 @@ class FieldModel(object):
     def mini(self, dist):
 
         a0 = [self.r*2]
-        bds = Bounds(0.001, np.min([self.x.std(), self.y.std()]))
+        bds = Bounds(0.001, self.up)
 
-        T = minimize(self.error, a0, 
+        T = minimize(self.error, a0,
                  args=(dist, self.data),
                  bounds=(bds))
 
@@ -113,21 +128,26 @@ class FieldModel(object):
         """
         
         """
-    
+
         density = models.geodesic(dists=dist, params=params)
         merror = fe.correlation(field, density)
-            
+
         return merror
 
     def plot(self):
 
         """
-        Plot scalar field and density, given fitted parameters:.
+        Plot scalar field and density, given fitted parameters:
+
+        Parameters:
+        - - - - -
+        x, y: float, array
+            Coordinates over which to plot data
+            Must be same length as scalar field to which data was fit
         """
 
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
 
-        dcmap = mpl.cm.jet
         dnorm = mpl.colors.Normalize(vmin=self.data.min(), vmax=self.data.max())
 
         img1 = ax1.scatter(self.x, self.y, c=self.data, marker='.', cmap='jet', norm=dnorm)
@@ -138,11 +158,11 @@ class FieldModel(object):
 
         L = models.geodesic(self.dist_, [self.sigma_])
 
-        lcmap = mpl.cm.jet
         lnorm = mpl.colors.Normalize(vmin=L.min(), vmax=L.max())
 
         img2 = ax2.scatter(self.x, self.y, c=L, marker='.', cmap='jet', norm=lnorm)
-        ax2.set_title('Estimated Density', fontsize=15)
+        title2 = 'Estimated Density\n Sigma: %.2f' % (self.sigma_)
+        ax2.set_title(title2, fontsize=15)
         ax2.set_xlabel('X', fontsize=15)
         ax2.set_ylabel('Y', fontsize=15)
         plt.colorbar(img2, ax=ax2)
@@ -158,17 +178,15 @@ class FieldModel(object):
 
         assert self.fitted, 'Must fit model before writing coefficients.'
 
-        param_names=['x_mean', 'y_mean', 'sigma',
-                     'nu', 'amplitude', 'density',
-                     'opterror']
+        param_names=['mu', 'sigma', 'cost']
 
-        param_vals = [self.coefs_[0], self.coefs_[1], self.coefs_[2],
-                      self.nu, self.amp_, self.density,
-                      self.opterror]
-        
+        param_vals = [self.mu_, self.sigma_, self.costs_[self.mu_]]
+        param_vals = [[x] for x in param_vals]
+
         param_map = dict(zip(param_names, param_vals))
+        df = pd.DataFrame(param_map)
 
-        return param_map
+        return df
 
     def write(self, outfile):
 
@@ -183,5 +201,4 @@ class FieldModel(object):
         """
 
         pmap = self.get_params()
-        df = pd.DataFrame(pmap)
-        df.to_csv(outfile)
+        pmap.to_csv(outfile, index_label=False)
