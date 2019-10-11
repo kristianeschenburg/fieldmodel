@@ -126,13 +126,44 @@ class FieldModel(object):
     def error(self, params, dist, field):
 
         """
-        
+        Compute error of current density estimate.
+
+        Parameters:
+        - - - - -
+        params: list
+            current parameter estimates
+        dist: float, array
+            geodesic distance vector
+        field: float, array
+            scalar field on which to fit density
         """
 
         density = models.geodesic(dists=dist, params=params)
         merror = fe.correlation(field, density)
 
         return merror
+
+    def pdf(self):
+        
+        """
+        Return density of fitted model.
+        """
+
+        prob = models.geodesic(self.dist_, [self.sigma_])
+        prob = prob/prob.sum()
+
+        return prob
+
+    def weight(self):
+
+        """
+        Computed weighted signal average of estimated density.
+        """
+
+        pdf = self.pdf()
+        l = (pdf * self.data).sum()
+
+        return l
 
     def plot(self):
 
@@ -156,7 +187,7 @@ class FieldModel(object):
         ax1.set_ylabel('Y', fontsize=15)
         plt.colorbar(img1, ax=ax1)
 
-        L = models.geodesic(self.dist_, [self.sigma_])
+        L = self.pdf()
 
         lnorm = mpl.colors.Normalize(vmin=L.min(), vmax=L.max())
 
@@ -178,9 +209,9 @@ class FieldModel(object):
 
         assert self.fitted, 'Must fit model before writing coefficients.'
 
-        param_names=['mu', 'sigma', 'cost']
+        param_names=['mu', 'sigma', 'cost', 'signal']
 
-        param_vals = [self.mu_, self.sigma_, self.costs_[self.mu_]]
+        param_vals = [self.mu_, self.sigma_, self.costs_[self.mu_], self.weight()]
         param_vals = [[x] for x in param_vals]
 
         param_map = dict(zip(param_names, param_vals))
