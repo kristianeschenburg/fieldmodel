@@ -73,6 +73,8 @@ def geodesic(dists, params):
     else:
         g = params[0] * np.exp(-1*(dists**2) / (2*params[1]**2))
 
+    g = g/g.sum()
+
     return g
 
 
