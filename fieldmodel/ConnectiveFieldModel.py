@@ -159,6 +159,7 @@ class FieldModel(object):
         merror = fe.lsq(sfield, L)
 
         return merror
+        
     def plot(self):
 
         """
