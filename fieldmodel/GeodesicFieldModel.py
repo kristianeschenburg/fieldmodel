@@ -333,9 +333,11 @@ class FieldModel(object):
 
         assert self.fitted, 'Must fit model before writing coefficients.'
 
-        param_names=['mu', 'sigma', 'cost', 'signal']
+        param_names=['mu', 'amplitude', 'sigma', 'cost', 'w_signal']
 
-        param_vals = [self.mu_, self.sigma_, self.costs_[self.mu_], self.weight()]
+        param_vals = [self.mu_, self.amplitude_, self.sigma_, 
+                      self.costs_[self.mu_], self.weight()]
+                      
         param_vals = [[x] for x in param_vals]
 
         param_map = dict(zip(param_names, param_vals))

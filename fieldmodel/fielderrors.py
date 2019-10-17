@@ -20,15 +20,9 @@ def correlation(sfield, prob):
         estimated density of current model
     """
 
-    prob = prob.squeeze()
-    sfield = sfield.squeeze()
-
-    p = np.ma.masked_invalid(prob)
-    s = np.ma.masked_invalid(sfield)
-    c = np.ma.corrcoef(p, s)
-
-    cmat = c.data
-    merror = 1 - cmat[0, 1]
+    p = prob.squeeze()[None, :]
+    s = sfield.squeeze()[None, :]
+    merror = cdist(s, p, metric='correlation')
 
     return merror
 
