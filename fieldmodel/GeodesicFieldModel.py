@@ -188,7 +188,7 @@ class FieldModel(object):
 
         return l
 
-    def plot(self):
+    def plot(self, cmap='jet'):
 
         """
         Plot scalar field and density, given fitted parameters:
@@ -198,7 +198,7 @@ class FieldModel(object):
 
         dnorm = mpl.colors.Normalize(vmin=self.data.min(), vmax=self.data.max())
 
-        img1 = ax1.scatter(self.x, self.y, c=self.data, cmap='jet', norm=dnorm)
+        img1 = ax1.scatter(self.x, self.y, c=self.data, cmap=cmap, norm=dnorm)
         ax1.set_title('Scalar Field', fontsize=15)
         ax1.set_xlabel('X', fontsize=15)
         ax1.set_ylabel('Y', fontsize=15)
@@ -218,7 +218,7 @@ class FieldModel(object):
         plt.tight_layout()
         plt.show()
 
-    def plot_costs(self):
+    def plot_costs(self, cmap):
 
         """
         Plot scalar field and cost of possible neighborhood options.
@@ -229,7 +229,7 @@ class FieldModel(object):
         dnorm = mpl.colors.Normalize(vmin=self.data.min(),
                                      vmax=self.data.max())
 
-        img1 = ax1.scatter(self.x, self.y, c=self.data, cmap='jet', norm=dnorm)
+        img1 = ax1.scatter(self.x, self.y, c=self.data, cmap=cmap, norm=dnorm)
         ax1.set_title('Scalar Field', fontsize=15)
         ax1.set_xlabel('X', fontsize=15)
         ax1.set_ylabel('Y', fontsize=15)
@@ -249,7 +249,7 @@ class FieldModel(object):
         plt.show()
 
 
-    def plot_sigmas(self):
+    def plot_sigmas(self, cmap='jet'):
 
         """
         Plot scalar field and sigmas of possible neighborhood.
@@ -260,7 +260,7 @@ class FieldModel(object):
         dnorm = mpl.colors.Normalize(vmin=self.data.min(),
                                      vmax=self.data.max())
 
-        img1 = ax1.scatter(self.x, self.y, c=self.data, cmap='jet', norm=dnorm)
+        img1 = ax1.scatter(self.x, self.y, c=self.data, cmap=cmap, norm=dnorm)
         ax1.set_title('Scalar Field', fontsize=15)
         ax1.set_xlabel('X', fontsize=15)
         ax1.set_ylabel('Y', fontsize=15)
@@ -284,7 +284,7 @@ class FieldModel(object):
         plt.show()
 
 
-    def plot_amplitudes(self):
+    def plot_amplitudes(self, cmap='jet'):
 
         """
         Plot scalar field and amplitude of possible neighborhood.
@@ -299,7 +299,7 @@ class FieldModel(object):
         dnorm = mpl.colors.Normalize(vmin=self.data.min(),
                                      vmax=self.data.max())
 
-        img1 = ax1.scatter(self.x, self.y, c=self.data, cmap='jet', norm=dnorm)
+        img1 = ax1.scatter(self.x, self.y, c=self.data, cmap=cmap, norm=dnorm)
         ax1.set_title('Scalar Field', fontsize=15)
         ax1.set_xlabel('X', fontsize=15)
         ax1.set_ylabel('Y', fontsize=15)
