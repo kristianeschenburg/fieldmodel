@@ -333,10 +333,10 @@ class FieldModel(object):
 
         assert self.fitted, 'Must fit model before writing coefficients.'
 
-        param_names=['mu', 'amplitude', 'sigma', 'cost', 'w_signal']
+        param_names=['mu', 'amplitude', 'sigma', 'cost', 'w_signal', 'signal']
 
         param_vals = [self.mu_, self.amplitude_, self.sigma_, 
-                      self.costs_[self.mu_], self.weight()]
+                      self.costs_[self.mu_], self.weight(), self.data[self.mu_]]
                       
         param_vals = [[x] for x in param_vals]
 
