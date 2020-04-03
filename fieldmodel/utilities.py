@@ -1,12 +1,19 @@
 import numpy as np
 
+from . import models
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
 from scipy.stats import ks_2samp
 
-def peak_neighborhood(apsp, peaks, n_size):
+
+##########
+# Methods for finding, filtering, and smoothing local maxima in scalar field.
+##########
+
+def peak_neighborhood(apsp, peak, n_size):
 
     """
     Find vertices in neighborhood of peak vertices.
@@ -20,10 +27,8 @@ def peak_neighborhood(apsp, peaks, n_size):
         maximum geodesic distance from peaks
     """
 
-    dpeaks = apsp[peaks, :]
-    idx = np.where(dpeaks < n_size)
-
-    nhood = np.unique(idx)
+    dpeaks = apsp[peak, :]
+    nhood = np.where(dpeaks < n_size)[0]
 
     return nhood
 
@@ -67,38 +72,6 @@ def find_peaks(apsp, sfield, n_size):
     peaks = np.where(keys == values)[0]
 
     return peaks
-
-
-def plot_peaks(x, y, sfield, peaks):
-
-    """
-    Plot peaks of scalar field.
-    
-    Parameters:
-    - - - - -
-    x, y: float, array
-        coordinates of data
-    sfield: float, array
-        scalar field
-    peaks: list
-        indices of local maxima
-    """
-
-    cmap = mpl.cm.jet
-    norm = mpl.colors.Normalize(vmin=sfield.min(), vmax=sfield.max())
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
-    ax1.scatter(x, y, marker='.')
-    for p in peaks:
-        ax1.scatter(x[p], y[p], c='r', s=50,)
-        ax1.annotate('%i' %(p), (x[p], y[p]), fontsize=15)
-    ax1.set_title('Peaks', fontsize=15)
-
-    img = ax2.scatter(x, y, c=sfield, marker='.', cmap='jet', norm=norm)
-    ax2.set_title('Scalar Field', fontsize=15)
-    plt.tight_layout()
-    plt.colorbar(img, ax=ax2)
-    plt.show()
 
 
 def global_peak(apsp, sfield, peaks, n_size=5):
@@ -159,3 +132,63 @@ def peak_KS(peaks, sfield, x, y, field_model):
         ks_map[p]['amp'] = field_model.amp_
 
     return ks_map
+
+
+##########
+# Methods for computing kernel density estimates of fieldmodel mappings.
+##########
+
+
+def kde(sregion, tregion, tdist, mapping, index_map, sigma=1.5):
+    
+    """
+    Compute the Kernel Density Estimate, in target coordinate space,
+    of the mapped vertices.  Each target vertex will be smoothed 
+    using an isotropic Gaussian kernel of width ```sigma```.  We
+    compute, for each target vertex, the number of mapped source 
+    vertices.  The transformed value of each target is the convolution 
+    of the isotropic Gaussian, centered at itself, with the count map.
+    
+    Parameters:
+    - - - - -
+    sregion / tregion: string
+        names of source and target regions
+    tdist: float, array
+        target geodesic pairwise distance matrix
+    mapping: DataFrame
+        output from fieldmodel, containing mapping
+        of each source verte to a target vertex
+    index_map: dictionary
+        mapping of region names to region indices
+    sigma: float
+        isotropic Gaussian standard deviation
+        larger values will smooth out a point source more
+        
+    Returns:
+    - - - -
+    density: float, array
+        kernel density estimate of target counts
+    """
+
+    tinds = index_map[tregion]
+    
+    # mapping of target indices to 0 : # targets
+    t2i = dict(zip(tinds, np.arange(len(tinds))))
+    
+    # determine number of source vertices mapping to each target
+    counts = np.zeros((len(tinds),))
+    for i in mapping.index:
+        mu = mapping.loc[i, 'mu']
+        counts[t2i[mu]] += 1
+
+    # iterate over target vertices, and convolve count map 
+    # with isotropic Gaussian kernel
+    density = np.zeros((counts.shape[0],))
+    for i in np.arange(len(tinds)):
+        
+        pdf = models.geodesic(tdist[i, :], [sigma])
+        
+        d = (pdf*counts).sum()
+        density[i] = d
+        
+    return density

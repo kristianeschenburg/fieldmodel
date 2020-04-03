@@ -6,6 +6,7 @@ from scipy.spatial.distance import cdist
 import fieldmodel.fielderrors as fe
 import fieldmodel.models as models
 import fieldmodel.utilities as util
+import fieldmodel.plotting as plotting
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -22,7 +23,7 @@ class FieldModel(object):
     source-to-target mapping, a scalar field model is fit to the similarity
     between the source and target feature vectors.
     
-    For a given scalar field, we fit an, isotropic geodesic Gaussian
+    For a given scalar field, we fit an isotropic geodesic Gaussian
     to the scalar field.  The fit is performed by minimizing the
     correlation distance between field and mixture density.
 
@@ -42,13 +43,14 @@ class FieldModel(object):
 
     def __init__(self, r=10, amplitude=False,
                  peak_size=15, hood_size=20,
-                 verbose=False):
+                 verbose=False, metric='pearson'):
 
         self.r = 10
         self.peak_size = peak_size
         self.hood_size = hood_size
         self.verbose = verbose
         self.amplitude = amplitude
+        self.metric = metric
 
     def fit(self, distances, data, x, y):
 
@@ -82,13 +84,16 @@ class FieldModel(object):
 
         # find local maxima in scalar field
         peaks = util.find_peaks(distances, data, n_size=self.peak_size)
-
-        # estimate global maximum
-        # based on highest mean signal in neighborhood of each local maxima
+ 
+        # for each local maximum, to mitigate finding peaks that are noise
+        # apply Laplacian smoothing (at each peak)
+        # global max is peak with highest smoothed signal
         [gmax, _] = util.global_peak(distances, data, peaks, n_size=10)
+        self.gmax = gmax
+        self.ring = np.where(distances[gmax, :] == self.hood_size)[0]
 
         # restrict location search space to neighborhood of global max
-        nhood = util.peak_neighborhood(distances, [gmax], n_size=self.hood_size)
+        nhood = util.peak_neighborhood(distances, gmax, n_size=self.hood_size)
 
         idx = np.zeros((n,))
         idx[nhood] = 1
@@ -130,6 +135,12 @@ class FieldModel(object):
 
     def mini(self, dist):
 
+
+        """
+        Optimization sub-method.
+        """
+
+
         if self.amplitude:
             a0 = [1, self.r*2]
         else:
@@ -138,7 +149,7 @@ class FieldModel(object):
         bds = Bounds(0.001, self.up)
 
         T = minimize(self.error, a0,
-                 args=(dist, self.data),
+                 args=(dist, self.data, self.metric),
                  bounds=(bds))
 
         optimal = {'params': T.x,
@@ -146,7 +157,27 @@ class FieldModel(object):
 
         return optimal
 
-    def error(self, params, dist, field):
+    def fit_amplitude(self):
+
+        """
+        Fit post-hoc amplitude, after fitting sigma and mean parameters.
+        """
+
+        a0 = [1, self.r*2]
+
+        bds = Bounds(0.001, self.up)
+
+        T = minimize(self.error, a0,
+                args=(self.dist_, self.data, self.metric),
+                bounds=(bds))
+
+        optimal = {'params': T.x,
+                'cost': T.fun}
+
+        self.amplitude_ = optimal['params'][0]
+
+
+    def error(self, params, dist, field, metric='pearson'):
 
         """
         Compute error of current density estimate.
@@ -162,7 +193,16 @@ class FieldModel(object):
         """
 
         density = models.geodesic(dists=dist, params=params)
-        merror = fe.correlation(field, density)
+        if metric == 'pearson':
+            merror = fe.pearson(field, density)
+        if metric == 'kendall':
+            merror = fe.kendall(field, density)
+        if metric == 'spearman':
+            merror = fe.spearman(field, density)
+        elif metric == 'L2':
+            merror = fe.L2(field, density)
+        elif metric == 'L1':
+            merror = fe.L1(field, density)
 
         return merror
 
@@ -188,136 +228,86 @@ class FieldModel(object):
 
         return l
 
-    def plot(self, cmap='jet'):
+    def plot(self, cmap='jet', field='pdf'):
 
         """
-        Plot scalar field and density, given fitted parameters:
+        Plot scalar field and density, given fitted parameters.
+
+        Parameters:
+        - - - - -
+        cmap: string
+            colormap to use
+        field: string
+            scalar map to plot
+            choices: ['pdf', 'amplitude', 'sigma', 'cost']
         """
 
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
-
-        dnorm = mpl.colors.Normalize(vmin=self.data.min(), vmax=self.data.max())
-
-        img1 = ax1.scatter(self.x, self.y, c=self.data, cmap=cmap, norm=dnorm)
-        ax1.set_title('Scalar Field', fontsize=15)
-        ax1.set_xlabel('X', fontsize=15)
-        ax1.set_ylabel('Y', fontsize=15)
-        plt.colorbar(img1, ax=ax1)
-
-        L = self.pdf()
-
-        lnorm = mpl.colors.Normalize(vmin=L.min(), vmax=L.max())
-
-        img2 = ax2.scatter(self.x, self.y, c=L, cmap='jet', norm=lnorm)
-        title2 = 'Estimated Density\nSigma: %.2f (mm)' % (self.sigma_)
-        ax2.set_title(title2, fontsize=15)
-        ax2.set_xlabel('X', fontsize=15)
-        ax2.set_ylabel('Y', fontsize=15)
-        plt.colorbar(img2, ax=ax2)
-
-        plt.tight_layout()
-        plt.show()
-
-    def plot_costs(self, cmap):
-
-        """
-        Plot scalar field and cost of possible neighborhood options.
-        """
-
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
-
-        dnorm = mpl.colors.Normalize(vmin=self.data.min(),
-                                     vmax=self.data.max())
-
-        img1 = ax1.scatter(self.x, self.y, c=self.data, cmap=cmap, norm=dnorm)
-        ax1.set_title('Scalar Field', fontsize=15)
-        ax1.set_xlabel('X', fontsize=15)
-        ax1.set_ylabel('Y', fontsize=15)
-        plt.colorbar(img1, ax=ax1)
-
-        costs = self.costs_
-        cnorm = mpl.colors.Normalize(vmin=0,
-                                     vmax=np.nanmax(costs))
-
-        img2 = ax2.scatter(self.x, self.y, c=costs, cmap='jet', norm=cnorm)
-        ax2.set_title('Costs', fontsize=15)
-        ax2.set_xlabel('X', fontsize=15)
-        ax2.set_ylabel('Y', fontsize=15)
-        plt.colorbar(img2, ax=ax2)
-
-        plt.tight_layout()
-        plt.show()
-
-
-    def plot_sigmas(self, cmap='jet'):
-
-        """
-        Plot scalar field and sigmas of possible neighborhood.
-        """
-
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
-
-        dnorm = mpl.colors.Normalize(vmin=self.data.min(),
-                                     vmax=self.data.max())
-
-        img1 = ax1.scatter(self.x, self.y, c=self.data, cmap=cmap, norm=dnorm)
-        ax1.set_title('Scalar Field', fontsize=15)
-        ax1.set_xlabel('X', fontsize=15)
-        ax1.set_ylabel('Y', fontsize=15)
-        plt.colorbar(img1, ax=ax1)
-
-        if self.amplitude:
-            sigmas = self.params_[:, 1]
-        else:
-            sigmas = self.params_[:, 0]
-        sigmas[np.isnan(sigmas)] = 0
-
-        cnorm = mpl.colors.Normalize(vmin=np.nanmin(sigmas), vmax=np.nanmax(sigmas))
-
-        img2 = ax2.scatter(self.x, self.y, c=sigmas, cmap='jet', norm=cnorm)
-        ax2.set_title('Sigmas (mm)', fontsize=15)
-        ax2.set_xlabel('X', fontsize=15)
-        ax2.set_ylabel('Y', fontsize=15)
-        plt.colorbar(img2, ax=ax2)
-
-        plt.tight_layout()
-        plt.show()
-
-
-    def plot_amplitudes(self, cmap='jet'):
-
-        """
-        Plot scalar field and amplitude of possible neighborhood.
-        """
-
-        if not self.amplitude:
+        if field == 'amplitude' and not self.amplitude:
             print('Amplitudes were not fit.')
             return
 
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+        field_func = {
+            'pdf': self.pdf(),
+            'cost': self.costs_,
+            'amplitude': self.params_[:, 0],
+            'sigma': self.params_[:, 1]
+            }
 
-        dnorm = mpl.colors.Normalize(vmin=self.data.min(),
+        field_titles = {
+            'pdf': 'Estimated Density\nSigma: %.2f (mm)' % (self.sigma_),
+            'cost': 'Costs',
+            'amplitude': 'Amplitudes',
+            'sigma': 'Sigmas (mm)'
+            }
+
+        fig = plt.figure(constrained_layout=False)
+        gs = fig.add_gridspec(nrows=1, ncols=2, 
+                                wspace=0.50, hspace=0.3)
+
+        dnorm = mpl.colors.Normalize(vmin=np.min([self.data.min(), 0]),
                                      vmax=self.data.max())
 
-        img1 = ax1.scatter(self.x, self.y, c=self.data, cmap=cmap, norm=dnorm)
+        ax1 = fig.add_subplot(gs[0, 0])
+        img1 = ax1.scatter(self.x, self.y, 
+                            c=self.data, 
+                            cmap='jet', 
+                            norm=dnorm)
+        ax1.scatter(self.x[self.ring], self.y[self.ring],
+                    c='k',
+                    s=5, alpha=0.75)
+        ax1.scatter(self.x[self.mu_], 
+                    self.y[self.mu_], 
+                    c='k', 
+                    s=50)
+        ax1.scatter(self.x[self.gmax], 
+                    self.y[self.gmax], 
+                    c='k', 
+                    s=50,
+                    marker='^')
+        ax1.annotate('Mu', (self.x[self.mu_], self.y[self.mu_]), fontsize=15)
+        ax1.annotate('Peak', (self.x[self.gmax], self.y[self.gmax]), fontsize=15)
+
         ax1.set_title('Scalar Field', fontsize=15)
         ax1.set_xlabel('X', fontsize=15)
         ax1.set_ylabel('Y', fontsize=15)
         plt.colorbar(img1, ax=ax1)
 
-        amplitudes = self.params_[:, 0]
-        amplitudes[np.isnan(amplitudes)] = 0
+        sfield = field_func[field]
+        stitle = field_titles[field]
 
-        cnorm = mpl.colors.Normalize(vmin=np.nanmin(amplitudes), vmax=np.nanmax(amplitudes))
+        snorm = mpl.colors.Normalize(vmin=sfield.min(), vmax=sfield.max())
 
-        img2 = ax2.scatter(self.x, self.y, c=amplitudes, cmap='jet', norm=cnorm)
-        ax2.set_title('Amplitudes', fontsize=15)
+        ax2 = fig.add_subplot(gs[0, 1])
+        img2 = ax2.scatter(self.x, self.y, 
+                            c=sfield, 
+                            cmap='jet', 
+                            norm=snorm)
+        ax2.set_title(stitle, fontsize=15)
         ax2.set_xlabel('X', fontsize=15)
         ax2.set_ylabel('Y', fontsize=15)
         plt.colorbar(img2, ax=ax2)
 
-        plt.tight_layout()
-        plt.show()
+        return fig
 
     def get_params(self):
 
@@ -335,9 +325,9 @@ class FieldModel(object):
 
         param_names=['mu', 'amplitude', 'sigma', 'cost', 'w_signal', 'signal']
 
-        param_vals = [self.mu_, self.amplitude_, self.sigma_, 
+        param_vals = [self.mu_, self.amplitude_, self.sigma_,
                       self.costs_[self.mu_], self.weight(), self.data[self.mu_]]
-                      
+
         param_vals = [[x] for x in param_vals]
 
         param_map = dict(zip(param_names, param_vals))
