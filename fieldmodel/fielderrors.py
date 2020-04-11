@@ -24,6 +24,8 @@ def pearson(sfield, prob):
 
     p = prob.squeeze()[None, :]
     s = sfield.squeeze()[None, :]
+
+    # compute Pearson distance
     merror = cdist(s, p, metric='correlation')
 
     return merror
@@ -49,6 +51,8 @@ def kendall(sfield, prob):
 
     p = prob.squeeze()[None, :]
     s = sfield.squeeze()[None, :]
+
+    # compute Kendall distance
     K = kendalltau(s, p)
     merror = 1-K[0]
 
@@ -75,6 +79,8 @@ def spearman(sfield, prob):
 
     p = prob.squeeze()[None, :]
     s = sfield.squeeze()[None, :]
+
+    # Compute Spearman distance
     S = spearmanr(s, p)
     merror = 1-S[0]
 
@@ -100,8 +106,11 @@ def L2(sfield, prob):
 
     p = np.ma.masked_invalid(prob)
     s = np.ma.masked_invalid(sfield)
+
+    # Compute L2 distance
     merror = s-p
     merror = merror**2
+    merror = np.sqrt(merror.sum())
 
     merror = merror.mean()
 
@@ -128,7 +137,8 @@ def L1(sfield, prob):
     p = np.ma.masked_invalid(prob)
     s = np.ma.masked_invalid(sfield)
 
+    # Compute L1 distance
     merror = np.abs(s-p)
-    merror = merror.mean()
+    merror = merror.sum()
 
     return merror

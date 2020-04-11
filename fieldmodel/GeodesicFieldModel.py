@@ -33,12 +33,18 @@ class FieldModel(object):
         whether to fit amplitude or not
     r: float
         intial estimate of sigma
+    amplitude: boolean
+        whether or not to fit amplitude during optimization procedure
     peak_size: float / int
-        minimum geodesic distance between peaks
-        larger values results in fewer peaks
+        minimum geodesic distance between local maxima
+        larger values result in selecting few local maxima
     hood_size: float / int
-        maximum distance away from peaks to include in search
-        large values between larger neighborhood
+        maximum radial distance from local maxima in which to search for
+        field model mean location
+        larger values means more candidates are considered
+    metric: string
+        cost function to use
+        options are: ['pearson', 'kendall', 'spearman', 'L2', 'L1']
     """
 
     def __init__(self, r=10, amplitude=False,
@@ -63,72 +69,108 @@ class FieldModel(object):
         Parameters:
         - - - - -
         distance, float, array
-            distance matrix between all pairs of points in a region
+            distance matrix between all pairs of points in target region
         data: float, array
-            scalar field to fit parameters to
+            scalar field to fit parameters to (i.e. correlation map)
+        x, y: float, array
+            flattened surface coordinates, used for plotting fitted parameters
+
+        Returns:
+        - - - -
+        mu_: int
+            lowest cost index
+        amplitude_: float
+            amplitude of fitted model (default is 1)
+        sigma_: float
+            sigma of fitted model
+        dist_: int, array
+            distance from mean location to all other indices
+        optimal_: list, float
+            array of optimal amplitude and sigma
         """
 
         self.data = data
         self.x = x
         self.y = y
+
+        # define upper bound on field model variance
         self.up = distances.max()/2
 
         [n, _] = distances.shape
 
-        if self.amplitude:
-            params = np.zeros((n, 2))
-        else:
-            params = np.zeros((n, 1))
+        # initialize parameter vectors
+        params = np.zeros((n, 2))
+        if not self.amplitude:
+            params[:, 0] = 1
 
+        # intiailize cost vector array
         costs = np.repeat(np.nan, n)
+
+
+        ##### BEGIN PEAK FINDING #####
 
         # find local maxima in scalar field
         peaks = util.find_peaks(distances, data, n_size=self.peak_size)
  
         # for each local maximum, to mitigate finding peaks that are noise
-        # apply Laplacian smoothing (at each peak)
+        # apply Laplacian smoothing (mean of local neighborhood) at each peak
         # global max is peak with highest smoothed signal
         [gmax, _] = util.global_peak(distances, data, peaks, n_size=10)
+
+        # store global max
         self.gmax = gmax
+        # store search neighborhood boundary
         self.ring = np.where(distances[gmax, :] == self.hood_size)[0]
 
         # restrict location search space to neighborhood of global max
         nhood = util.peak_neighborhood(distances, gmax, n_size=self.hood_size)
 
-        idx = np.zeros((n,))
-        idx[nhood] = 1
-        idx = ~idx.astype(np.bool)
-        params[idx, :] = np.nan
+        ##### END PEAK FINDING #####
+
+
+        ##### BEGIN FITTING PROCEDURE #####
+
+
+        # set exclusion index parameters to NAN
+        # we won't be searching over these indices
+        exclude = list(set(np.arange(n)).difference(set(nhood)))
+        params[exclude, :] = np.nan
+
 
         if self.verbose:
             print('Searching over %.2f%% samples.' % (100*len(nhood) / data.shape[0]))
 
-        # iterate over neighborhood points
-        # compute cost for each point
+        # iterate over all indices in neighborhood of global maximum
+        # compute cost and optimized parameters for each index
         for idx in nhood:
             tempopt = self.mini(distances[idx, :])
-            params[idx, :] = tempopt['params']
+            params[idx, 1] = tempopt['params']
             costs[idx] = tempopt['cost']
 
+        # store neighborhood indices
         self.nhood_ = nhood
+        # store parameters for each index
         self.params_ = params
 
+        ##### END FITTING PROCEDURE #####
+
+
+        ##### BEGIN PARAMETER SELECTION #####
+
+        # identify index with lowest cost
         mu = np.nanargmin(costs)
 
+        # store cost array for all indices in search space
         costs[np.isnan(costs)] = 0
         self.costs_ = costs
 
-        if self.amplitude:
-            sigma = params[mu, 1]
-            amplitude = params[mu, 0]
-        else:
-            sigma = params[mu, 0]
-            amplitude = 1
+        # store fieldmodel sigma and amplitude parameters of lowest cost index
 
         self.mu_ = mu
-        self.optimal_ = [amplitude, sigma]
-        self.amplitude_ = amplitude
-        self.sigma_ = sigma
+        self.amplitude_ = params[mu, 0]
+        self.sigma_ = params[mu, 1]
+        self.optimal_ = [self.amplitude_, self.sigma_]
+        
         self.dist_ = distances[mu, :]
 
         self.fitted = True
@@ -138,6 +180,11 @@ class FieldModel(object):
 
         """
         Optimization sub-method.
+
+        Parameters:
+        - - - - -
+        dist: int, array
+            distance of current index to all other indices
         """
 
 
@@ -186,30 +233,33 @@ class FieldModel(object):
         - - - - -
         params: list
             current parameter estimates
+            [amplitude, sigma]
+            or
+            [sigma]
         dist: float, array
             geodesic distance vector
         field: float, array
             scalar field on which to fit density
+        metric: string
+            cost function to use
+            choices include ['pearson', 'kendall', 'spearman', 'L2', 'L1']
         """
 
+        error_map = {'pearson': fe.pearson,
+                     'kendall': fe.kendall,
+                     'spearman': fe.spearman,
+                     'L2': fe.L2,
+                     'L1': fe.L1}
+
         density = models.geodesic(dists=dist, params=params)
-        if metric == 'pearson':
-            merror = fe.pearson(field, density)
-        if metric == 'kendall':
-            merror = fe.kendall(field, density)
-        if metric == 'spearman':
-            merror = fe.spearman(field, density)
-        elif metric == 'L2':
-            merror = fe.L2(field, density)
-        elif metric == 'L1':
-            merror = fe.L1(field, density)
+        merror = error_map[metric](field, density)
 
         return merror
 
     def pdf(self):
 
         """
-        Return density of fitted model.
+        Return density of fitted model, normalized to density 1.
         """
 
         prob = models.geodesic(self.dist_, self.optimal_)
@@ -242,10 +292,6 @@ class FieldModel(object):
             choices: ['pdf', 'amplitude', 'sigma', 'cost']
         """
 
-        if field == 'amplitude' and not self.amplitude:
-            print('Amplitudes were not fit.')
-            return
-
         field_func = {
             'pdf': self.pdf(),
             'cost': self.costs_,
@@ -264,14 +310,15 @@ class FieldModel(object):
         gs = fig.add_gridspec(nrows=1, ncols=2, 
                                 wspace=0.50, hspace=0.3)
 
-        dnorm = mpl.colors.Normalize(vmin=np.min([self.data.min(), 0]),
-                                     vmax=self.data.max())
+        dnorm = mpl.colors.Normalize(vmin=np.nanmin([self.data.min(), 0]),
+                                     vmax=np.nanmax(self.data))
 
         ax1 = fig.add_subplot(gs[0, 0])
         img1 = ax1.scatter(self.x, self.y, 
                             c=self.data, 
                             cmap='jet', 
                             norm=dnorm)
+
         ax1.scatter(self.x[self.ring], self.y[self.ring],
                     c='k',
                     s=5, alpha=0.75)
@@ -284,6 +331,7 @@ class FieldModel(object):
                     c='k', 
                     s=50,
                     marker='^')
+
         ax1.annotate('Mu', (self.x[self.mu_], self.y[self.mu_]), fontsize=15)
         ax1.annotate('Peak', (self.x[self.gmax], self.y[self.gmax]), fontsize=15)
 
@@ -295,13 +343,14 @@ class FieldModel(object):
         sfield = field_func[field]
         stitle = field_titles[field]
 
-        snorm = mpl.colors.Normalize(vmin=sfield.min(), vmax=sfield.max())
+        snorm = mpl.colors.Normalize(vmin=np.nanmin(sfield), vmax=np.nanmax(sfield))
 
         ax2 = fig.add_subplot(gs[0, 1])
         img2 = ax2.scatter(self.x, self.y, 
                             c=sfield, 
                             cmap='jet', 
                             norm=snorm)
+
         ax2.set_title(stitle, fontsize=15)
         ax2.set_xlabel('X', fontsize=15)
         ax2.set_ylabel('Y', fontsize=15)

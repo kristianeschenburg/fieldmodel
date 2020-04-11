@@ -286,5 +286,3 @@ def plot_peaks(x, y, sfield, peaks):
     plt.tight_layout()
     plt.colorbar(img, ax=ax2)
     plt.show()
-
-def kde()

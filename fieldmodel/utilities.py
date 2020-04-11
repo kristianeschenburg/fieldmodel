@@ -32,14 +32,14 @@ def peak_neighborhood(apsp, peak, n_size):
 
     return nhood
 
-def find_peaks(apsp, sfield, n_size):
+def find_peaks(dist, sfield, n_size):
 
     """
     Find the local maxima of a dataset.
     
     Parameters:
     - - - - -
-    apsp: int, array
+    dist: int, array
         all-pairs shortest path matrix between all samples
     sfield: float, array
         scalar map from which to compute local maxima
@@ -54,22 +54,36 @@ def find_peaks(apsp, sfield, n_size):
     # and store in dictionary
     neighbs = {k: None for k in inds}
     for k in inds:
-        h = np.where(np.asarray(apsp[k, :]) <= n_size)[0]
+        h = np.where(np.asarray(dist[k, :]) <= n_size)[0]
         neighbs[k] = h
 
-    # for each index in scalar field
-    # identify most correlated signal
-    maxcorr = {k: None for k in inds}
+    # identify most-correlated signal in neighborhood
+    maxsignal = {k: None for k in inds}
     for k in inds:
 
         temp = np.ma.masked_invalid(sfield[neighbs[k]])
         temp = temp.argmax()
-        maxcorr[k] = neighbs[k][temp]
+        maxsignal[k] = neighbs[k][temp]
 
-    keys = np.asarray(list(maxcorr.keys()))
-    values = np.asarray(list(maxcorr.values()))
+    # get unique local maxima in scalar field
+    # sort them in order of signal strength
+    up = np.unique(list(maxsignal.values()))
+    up = np.asarray(up[np.argsort((-1*sfield)[up])])
 
-    peaks = np.where(keys == values)[0]
+    passed = np.zeros(len(dist[0, :]))
+    passed[up] = 1
+
+    # identify those peaks that pass neighborhood size threshold
+    for peak in up:
+        # if current peak passes
+        if passed[peak]:
+
+            # find points that are farther than n_size away
+            zinds = np.where((dist[peak, :] < n_size) & (dist[peak, :] > 0))[0]
+            zinds = list(set(up).intersection(zinds))
+            passed[zinds] = 0
+
+    peaks = np.where(passed)[0]
 
     return peaks
 
