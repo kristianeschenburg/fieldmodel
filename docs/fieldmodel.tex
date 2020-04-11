@@ -343,7 +343,68 @@ This will install the package, and will enable you to import the modules.
 
 \section{GeodesicFieldModel}
 
-The primary class of interest (in our case) is \textbf{GeodesicFieldModel} -- \textbf{GFM}) for short.  We can invoke the \textbf{GFM} class as follows:
+Let's first have a look at an exemplar scalar field, and a plot of local maxima in this scalar field that meet some of our criteria.  We'll begin by loading our $(x,y)$ coordinate data in the target space, the pairwise distance matrix, and our scalar field.
+
+\begin{lstlisting}[language=Python]
+import numpy as np
+import scipy.io as sio
+
+# Create fake distance matrix between and fake scalar map
+tx_file = '../data/target.X.mat'
+tx = sio.loadmat(tx_file)['x'].squeeze()
+
+ty_file = '../data/target.Y.mat'
+ty = sio.loadmat(ty_file)['y'].squeeze()
+
+dist_file = '../data/distance.mat'
+dist = sio.loadmat(dist_file)['apsp']
+
+field_file = '../data/scalar_field.mat'
+field = sio.loadmat(field_file)['field'].squeeze()
+
+\end{lstlisting}
+
+If we want to find some local maxima in this field, we can perform the following commands:
+
+\begin{lstlisting}[language=Python]
+from fieldmodel import utilities, plotting
+
+# define minimum geodesic distance between peaks
+# if peaks within this distance of one another, discard peak with lower signal
+n=12
+
+# compute peaks
+peaks = utilities.find_peaks(dist=dist, n_size=n, sfield=field)
+
+# compute peak search space
+nhood = util.peak_neighborhood(apsp=dist, n_size=n,  peaks=peaks)
+
+# plot peak locations
+plotting.plot_peaks(peaks=peaks, sfield=field, x=tx, y=ty)
+
+# plot peak search space
+plotting.plot_searchspace(dist=dist, peaks=peaks, nhood=nhood, sfield=field, x=tx, y=ty)
+
+\end{lstlisting}
+
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[scale=0.45]{../demos/peaks.png}
+	\caption{Example local maxima.}
+	\label{fig:peaks}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[scale=0.45]{../demos/searchspace.png}
+	\caption{Mean location searchspace.}
+	\label{fig:space}
+\end{figure}
+
+Note that if we had decreased parameter \texttt{n}, we would see more candidate local maxima in the plot.
+
+The primary class of interest (in our case) is \textbf{GeodesicFieldModel} -- \textbf{GFM}) for short.  We can instantiate and fit the \textbf{GFM} model as follows:
 
 \begin{lstlisting}[language=Python]
 import numpy as np
@@ -365,40 +426,45 @@ metric: string
 	Cost function to use to optimization procedure.  Options include: 'pearson', 'kendall', 'spearman', 'L2', and 'L1'
 """				
 
+# instantiate model
 G = GFM.FieldModel(r=10, amplitude=False, peak_size=15, 
 				hood_size=20,  verbose=False, metric='pearson')
 
+# fit model
+G.fit(data=field, distances=dist, x=tx, y=ty)
+
 \end{lstlisting}
 
-In order to fit the actual model, we need to provide the model with some arguments.
+\newpage
+
+We can then view the fitted model by calling the \texttt{G.plot()} method, and provide one of the following choices: ['sigma', 'cost', 'pdf'] to the \texttt{field} parameter in the method.
 
 \begin{lstlisting}[language=Python]
-import numpy as np
-from fieldmodel import GeodesicFieldModel as GFM
-
-"""
-We use the GFM.FieldModel.fit() method to fit our model, which takes 4 arguments:
-
-distance: int, array
-	Symmetric pairwise distance matrix for all data points in the domain
-data: float, array
-	Scalar field to which the fieldmodel will be fit.  Associates each datapoint with a numerical value.
-x / y: float, array
-	Optional. (x,y) coordinates of data points.  Used for plotting model results.
-"""
-
-# Create fake distance matrix between and fake scalar map
-D = np.random.rand(10, 10)
-D = np.abs(D + D.T)
-scalar_map = np.random.rand(10)
-
-# Crate fake x / y coordiantes
-[x,y] = np.random.rand(10, 2)
-
-G.fit(distance=D, data=scalar_map, x=x, y=y)
-
+# plot fitted model
+G.plot(field='pdf')
+G.plot(field='cost')
+G.plot(field='sigma')
 \end{lstlisting}
 
+\begin{figure}[H]
+	\centering
+	\includegraphics[scale=0.45]{../demos/pdf.png}
+	\caption{Estimated field density.}
+	\label{fig:pdf}
+\end{figure}
 
+\begin{figure}[H]
+	\centering
+	\includegraphics[scale=0.45]{../demos/sigma.png}
+	\caption{Fitted variance in search space.}
+	\label{fig:sigma}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[scale=0.45]{../demos/cost.png}
+	\caption{Fitted cost in search space.}
+	\label{fig:cost}
+\end{figure}
 
 \end{document}

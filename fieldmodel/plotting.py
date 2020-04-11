@@ -249,7 +249,7 @@ class FieldModelGraph(object):
         return coordinates
 
 
-def plot_peaks(x, y, sfield, peaks):
+def plot_peaks(x, y, sfield, peaks, field_kwargs={}):
 
     """
     Plot peaks of scalar field.
@@ -264,25 +264,98 @@ def plot_peaks(x, y, sfield, peaks):
         indices of local maxima
     """
 
+    if isinstance(peaks, np.int64):
+        peaks = [peaks]
+
     cmap = mpl.cm.jet
     
     norm = mpl.colors.Normalize(vmin=np.min([sfield.min(), 0]),
                                 vmax=sfield.max())
 
-    fig = plt.figure(constrained_layout=False)
-    gs = fig.add_gridspec(nrows=1, ncols=2,
-                            wspace=0.50, hspace=0.3)
+    fig = plt.figure(constrained_layout=False, figsize=(10, 4))
+    gs = fig.add_gridspec(nrows=1, 
+                          ncols=2,
+                          wspace=0.50,
+                          hspace=0.3)
 
     ax1 = fig.add_subplot(gs[0, 0])
     ax1.scatter(x, y, marker='.')
     for p in peaks:
         ax1.scatter(x[p], y[p], c='r', s=50,)
         ax1.annotate('%i' %(p), (x[p], y[p]), fontsize=15)
-    ax1.set_title('Peaks', fontsize=15)
+    ax1.set_title('Local Maxima', fontsize=15)
 
     ax2 = fig.add_subplot(gs[0, 1])
     img = ax2.scatter(x, y, c=sfield, marker='.', cmap='jet', norm=norm)
     ax2.set_title('Scalar Field', fontsize=15)
-    plt.tight_layout()
-    plt.colorbar(img, ax=ax2)
-    plt.show()
+
+    if 'label' in field_kwargs:
+        label = field_kwargs['label']
+    else:
+        label = 'Field'
+
+    plt.colorbar(img, ax=ax2, label=label)
+
+    return fig
+
+
+def plot_searchspace(x, y, sfield, peaks, nhood, dist, field_kwargs={}):
+
+    """
+    Plot peaks of scalar field.
+    
+    Parameters:
+    - - - - -
+    x, y: float, array
+        coordinates of data
+    sfield: float, array
+        scalar field
+    peaks: list
+        indices of local maxima
+    """
+
+    if isinstance(peaks, np.int64):
+        peaks = np.asarray([peaks])
+
+    filt_dist = dist[peaks, :][:, nhood]
+    mins = filt_dist.argmin(0)
+    min_dist = dist[tuple((peaks[mins], nhood))]
+
+    cmap = mpl.cm.jet
+    
+    dnorm = mpl.colors.Normalize(vmin=np.min([min_dist.min(), 0]),
+                                vmax=min_dist.max())
+
+    fig = plt.figure(constrained_layout=False, figsize=(10, 4))
+    gs = fig.add_gridspec(nrows=1, 
+                          ncols=2,
+                          wspace=0.50,
+                          hspace=0.3)
+
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax1.scatter(x, y, marker='.')
+    img1 = ax1.scatter(x[nhood], y[nhood], c=min_dist, marker='.', cmap='jet', norm=dnorm)
+    
+
+    for p in peaks:
+        ax1.scatter(x[p], y[p], c='r', s=50,)
+        ax1.annotate('%i' %(p), (x[p], y[p]), fontsize=15)
+
+    ax1.set_title('Mean Location Search Space', fontsize=15)
+    plt.colorbar(img1, ax=ax1, label='Distance to Nearest Peak')
+
+    fnorm = mpl.colors.Normalize(vmin=np.min([sfield.min(), 0]),
+                                vmax=sfield.max())
+
+    ax2 = fig.add_subplot(gs[0, 1])
+    img2 = ax2.scatter(x, y, c=sfield, marker='.', cmap='jet', norm=fnorm)
+    ax2.set_title('Scalar Field', fontsize=15)
+
+    if 'label' in field_kwargs:
+        label = field_kwargs['label']
+    else:
+        label = 'Field'
+
+    plt.colorbar(img2, ax=ax2, label=label)
+
+    return fig

@@ -123,7 +123,7 @@ class FieldModel(object):
         self.ring = np.where(distances[gmax, :] == self.hood_size)[0]
 
         # restrict location search space to neighborhood of global max
-        nhood = util.peak_neighborhood(distances, gmax, n_size=self.hood_size)
+        nhood = util.peak_neighborhood(distances, peaks, n_size=self.hood_size)
 
         ##### END PEAK FINDING #####
 
@@ -147,10 +147,12 @@ class FieldModel(object):
             params[idx, 1] = tempopt['params']
             costs[idx] = tempopt['cost']
 
+        params[np.isnan(params)] = 0
         # store neighborhood indices
         self.nhood_ = nhood
         # store parameters for each index
         self.params_ = params
+    
 
         ##### END FITTING PROCEDURE #####
 
@@ -301,14 +303,25 @@ class FieldModel(object):
 
         field_titles = {
             'pdf': 'Estimated Density\nSigma: %.2f (mm)' % (self.sigma_),
-            'cost': 'Costs',
-            'amplitude': 'Amplitudes',
-            'sigma': 'Sigmas (mm)'
+            'cost': 'Fitted Search-Space Costs',
+            'amplitude': 'Fitted Search-Space Amplitudes',
+            'sigma': 'Fitted Search-Space Sigmas'
             }
 
-        fig = plt.figure(constrained_layout=False)
-        gs = fig.add_gridspec(nrows=1, ncols=2, 
-                                wspace=0.50, hspace=0.3)
+        field_labels = {
+            'pdf': 'Density' % (self.sigma_),
+            'cost': 'Cost',
+            'amplitude': 'Amplitude',
+            'sigma': 'Sigma (mm)'
+            }
+        
+
+
+        fig = plt.figure(constrained_layout=False, figsize=(10, 4))
+        gs = fig.add_gridspec(nrows=1, 
+                              ncols=2,
+                              wspace=0.50,
+                              hspace=0.3)
 
         dnorm = mpl.colors.Normalize(vmin=np.nanmin([self.data.min(), 0]),
                                      vmax=np.nanmax(self.data))
@@ -318,10 +331,6 @@ class FieldModel(object):
                             c=self.data, 
                             cmap='jet', 
                             norm=dnorm)
-
-        ax1.scatter(self.x[self.ring], self.y[self.ring],
-                    c='k',
-                    s=5, alpha=0.75)
         ax1.scatter(self.x[self.mu_], 
                     self.y[self.mu_], 
                     c='k', 
@@ -343,7 +352,8 @@ class FieldModel(object):
         sfield = field_func[field]
         stitle = field_titles[field]
 
-        snorm = mpl.colors.Normalize(vmin=np.nanmin(sfield), vmax=np.nanmax(sfield))
+        snorm = mpl.colors.Normalize(vmin=np.nanmin(sfield), 
+                                     vmax=np.nanmax(sfield))
 
         ax2 = fig.add_subplot(gs[0, 1])
         img2 = ax2.scatter(self.x, self.y, 
@@ -354,7 +364,7 @@ class FieldModel(object):
         ax2.set_title(stitle, fontsize=15)
         ax2.set_xlabel('X', fontsize=15)
         ax2.set_ylabel('Y', fontsize=15)
-        plt.colorbar(img2, ax=ax2)
+        plt.colorbar(img2, ax=ax2, label=field_labels[field])
 
         return fig
 
