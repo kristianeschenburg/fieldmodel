@@ -49,12 +49,11 @@ class FieldModel(object):
 
     def __init__(self, r=10, amplitude=False,
                  peak_size=15, hood_size=20,
-                 verbose=False, metric='pearson'):
+                 metric='pearson'):
 
         self.r = 10
         self.peak_size = peak_size
         self.hood_size = hood_size
-        self.verbose = verbose
         self.amplitude = amplitude
         self.metric = metric
 
@@ -135,10 +134,6 @@ class FieldModel(object):
         # we won't be searching over these indices
         exclude = list(set(np.arange(n)).difference(set(nhood)))
         params[exclude, :] = np.nan
-
-
-        if self.verbose:
-            print('Searching over %.2f%% samples.' % (100*len(nhood) / data.shape[0]))
 
         # iterate over all indices in neighborhood of global maximum
         # compute cost and optimized parameters for each index
