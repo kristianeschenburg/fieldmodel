@@ -13,7 +13,7 @@ from scipy.stats import ks_2samp
 # Methods for finding, filtering, and smoothing local maxima in scalar field.
 ##########
 
-def peak_neighborhood(apsp, peaks, n_size):
+def peak_neighborhood(apsp, peaks, h_size):
 
     """
     Find vertices in neighborhood of peak vertices.
@@ -23,7 +23,7 @@ def peak_neighborhood(apsp, peaks, n_size):
         all-pairs shortest path matrix between all samples
     peaks: list
         indices of local maxima
-    n_size: float / int
+    h_size: float / int
         maximum geodesic distance from peaks
     """
 
@@ -33,7 +33,7 @@ def peak_neighborhood(apsp, peaks, n_size):
     inds = np.arange(apsp.shape[0])
     dpeaks = apsp[peaks, :]
 
-    nhood = [inds[(dpeaks < n_size).tolist()[k]] for k in np.arange(len(peaks))]
+    nhood = [inds[(dpeaks < h_size).tolist()[k]] for k in np.arange(len(peaks))]
     nhood = np.unique(np.concatenate(nhood))
 
     return nhood

@@ -122,7 +122,7 @@ class FieldModel(object):
         self.ring = np.where(distances[gmax, :] == self.hood_size)[0]
 
         # restrict location search space to neighborhood of global max
-        nhood = util.peak_neighborhood(distances, peaks, n_size=self.hood_size)
+        nhood = util.peak_neighborhood(distances, peaks, h_size=self.hood_size)
 
         ##### END PEAK FINDING #####
 
