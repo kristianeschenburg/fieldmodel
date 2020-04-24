@@ -109,10 +109,7 @@ def L2(sfield, prob):
 
     # Compute L2 distance
     merror = s-p
-    merror = merror**2
-    merror = np.sqrt(merror.sum())
-
-    merror = merror.mean()
+    merror = (merror**2).sum()
 
     return merror
 

@@ -47,14 +47,11 @@ class FieldModel(object):
         options are: ['pearson', 'kendall', 'spearman', 'L2', 'L1']
     """
 
-    def __init__(self, r=10, amplitude=False,
-                 peak_size=15, hood_size=20,
-                 metric='pearson'):
+    def __init__(self, r=10, peak_size=15, hood_size=20, metric='pearson'):
 
         self.r = 10
         self.peak_size = peak_size
         self.hood_size = hood_size
-        self.amplitude = amplitude
         self.metric = metric
 
     def fit(self, distances, data, x, y):
@@ -67,7 +64,7 @@ class FieldModel(object):
 
         Parameters:
         - - - - -
-        distance, float, array
+        distances: float, array
             distance matrix between all pairs of points in target region
         data: float, array
             scalar field to fit parameters to (i.e. correlation map)
@@ -78,8 +75,6 @@ class FieldModel(object):
         - - - -
         mu_: int
             lowest cost index
-        amplitude_: float
-            amplitude of fitted model (default is 1)
         sigma_: float
             sigma of fitted model
         dist_: int, array
@@ -93,42 +88,33 @@ class FieldModel(object):
         self.y = y
 
         # define upper bound on field model variance
-        self.up = distances.max()/2
+        self.up = distances.max(0).min()
 
         [n, _] = distances.shape
 
         # initialize parameter vectors
         params = np.zeros((n, 2))
-        if not self.amplitude:
-            params[:, 0] = 1
 
         # intiailize cost vector array
-        costs = np.repeat(np.nan, n)
+        opt_cost = np.repeat(np.nan, n)
+        lsq_cost = np.repeat(np.nan, n)
 
 
         ##### BEGIN PEAK FINDING #####
 
         # find local maxima in scalar field
         peaks = util.find_peaks(distances, data, n_size=self.peak_size)
- 
-        # for each local maximum, to mitigate finding peaks that are noise
-        # apply Laplacian smoothing (mean of local neighborhood) at each peak
-        # global max is peak with highest smoothed signal
-        [gmax, _] = util.global_peak(distances, data, peaks, n_size=10)
-
-        # store global max
-        self.gmax = gmax
-        # store search neighborhood boundary
-        self.ring = np.where(distances[gmax, :] == self.hood_size)[0]
+        self.peaks = peaks
 
         # restrict location search space to neighborhood of global max
         nhood = util.peak_neighborhood(distances, peaks, h_size=self.hood_size)
+        self.nhood = nhood
 
         ##### END PEAK FINDING #####
 
 
-        ##### BEGIN FITTING PROCEDURE #####
 
+        ##### BEGIN FITTING PROCEDURE #####
 
         # set exclusion index parameters to NAN
         # we won't be searching over these indices
@@ -137,42 +123,64 @@ class FieldModel(object):
 
         # iterate over all indices in neighborhood of global maximum
         # compute cost and optimized parameters for each index
+        
         for idx in nhood:
-            tempopt = self.mini(distances[idx, :])
-            params[idx, 1] = tempopt['params']
-            costs[idx] = tempopt['cost']
 
-        params[np.isnan(params)] = 0
-        # store neighborhood indices
-        self.nhood_ = nhood
-        # store parameters for each index
-        self.params_ = params
-    
+            # we optimize first to find areas that look Gaussian
+            tempopt = self.optimize(distances[idx, :])
+            params[idx, 1] = tempopt['params']
+
+            # then we fit the amplitudes to minimize the least-squares distance
+            # of the distribution to the field
+            coefs = self.fit_amplitude(distances[idx, :], 
+                                       tempopt['params'], 
+                                       include_intercept=True)
+
+            params[idx, 0] = coefs[1]
+
+            opt_cost[idx] = self.error([params[idx, 1]], distances[idx, :], self.data, metric='pearson')
+            lsq_cost[idx] = self.error(params[idx, :], distances[idx, :], self.data, metric='L2')
 
         ##### END FITTING PROCEDURE #####
 
 
         ##### BEGIN PARAMETER SELECTION #####
 
+        self.params_ = params
+
         # identify index with lowest cost
-        mu = np.nanargmin(costs)
+        self.mu_ = {'opt': np.nanargmin(opt_cost),
+                    'lsq': np.nanargmin(lsq_cost),
+                    'amp': np.nanargmax(params[:, 0])}
+        
+        self.signal_ = {'opt': self.data[self.mu_['opt']],
+                        'lsq': self.data[self.mu_['lsq']],
+                        'amp': self.data[self.mu_['amp']]}
 
         # store cost array for all indices in search space
-        costs[np.isnan(costs)] = 0
-        self.costs_ = costs
+        self.cost_ = {'opt': opt_cost,
+                      'lsq': lsq_cost}
 
         # store fieldmodel sigma and amplitude parameters of lowest cost index
-
-        self.mu_ = mu
-        self.amplitude_ = params[mu, 0]
-        self.sigma_ = params[mu, 1]
-        self.optimal_ = [self.amplitude_, self.sigma_]
+        self.amplitude_ = {'opt': params[self.mu_['opt'], 0],
+                           'lsq': params[self.mu_['lsq'], 0],
+                           'amp': params[self.mu_['amp'], 0]}
         
-        self.dist_ = distances[mu, :]
+        self.sigma_ = {'opt': params[self.mu_['opt'], 1],
+                       'lsq': params[self.mu_['lsq'], 1],
+                       'amp': params[self.mu_['amp'], 1]}
+        
+        self.optimal_ = {'opt': [self.amplitude_['opt'], self.sigma_['opt']],
+                         'lsq': [self.amplitude_['lsq'], self.sigma_['lsq']],
+                         'lsq': [self.amplitude_['amp'], self.sigma_['amp']]}
+        
+        self.dist_ = {'opt': distances[self.mu_['opt']],
+                      'lsq': distances[self.mu_['lsq']],
+                      'amp': distances[self.mu_['amp']]}
 
         self.fitted = True
 
-    def mini(self, dist):
+    def optimize(self, dist):
 
 
         """
@@ -184,13 +192,9 @@ class FieldModel(object):
             distance of current index to all other indices
         """
 
+        a0 = [self.r*2]
 
-        if self.amplitude:
-            a0 = [1, self.r*2]
-        else:
-            a0 = [self.r*2]
-
-        bds = Bounds(0.001, self.up)
+        bds = Bounds(0.5, self.up)
 
         T = minimize(self.error, a0,
                  args=(dist, self.data, self.metric),
@@ -201,25 +205,33 @@ class FieldModel(object):
 
         return optimal
 
-    def fit_amplitude(self):
+    def fit_amplitude(self, dist, sigma, include_intercept=True):
 
         """
-        Fit post-hoc amplitude, after fitting sigma and mean parameters.
+        Fit amplitude after fitting sigma, incluing 
+
+        Parameters:
+        - - - - -
+        dist: int, array
+            distance of current index to all other indices
+        sigma: float
+            estimated sigma value
         """
 
-        a0 = [1, self.r*2]
+        X = models.geodesic(dist, [sigma])
+        X = (X-X.min()) / (X.max() - X.min())
 
-        bds = Bounds(0.001, self.up)
+        if include_intercept:
+            X = np.column_stack([np.ones(X.shape[0]), X])
 
-        T = minimize(self.error, a0,
-                args=(self.dist_, self.data, self.metric),
-                bounds=(bds))
+        Y = self.data
 
-        optimal = {'params': T.x,
-                'cost': T.fun}
+        if X.ndim == 1:
+            A = (1 / (X.T.dot(X))) * X.T.dot(Y)
+        else:
+            A = np.linalg.inv(X.T.dot(X)).dot(X.T.dot(Y))
 
-        self.amplitude_ = optimal['params'][0]
-
+        return A
 
     def error(self, params, dist, field, metric='pearson'):
 
@@ -259,7 +271,7 @@ class FieldModel(object):
         Return density of fitted model, normalized to density 1.
         """
 
-        prob = models.geodesic(self.dist_, self.optimal_)
+        prob = models.geodesic(self.dist_['opt'], self.optimal_['opt'])
         prob = prob/prob.sum()
 
         return prob
@@ -286,37 +298,44 @@ class FieldModel(object):
             colormap to use
         field: string
             scalar map to plot
-            choices: ['pdf', 'amplitude', 'sigma', 'cost']
+            choices: ['pdf', 'amplitude', 'sigma', 'cost', 'data']
         """
 
         field_func = {
             'pdf': self.pdf(),
-            'cost': self.costs_,
+            'cost': self.cost_['opt'],
             'amplitude': self.params_[:, 0],
             'sigma': self.params_[:, 1]
             }
 
         field_titles = {
-            'pdf': 'Estimated Density\nSigma: %.2f (mm)' % (self.sigma_),
+            'pdf': 'Estimated Density\nSigma: %.2f (mm)' % (self.sigma_['opt']),
             'cost': 'Fitted Search-Space Costs',
             'amplitude': 'Fitted Search-Space Amplitudes',
             'sigma': 'Fitted Search-Space Sigmas'
             }
 
         field_labels = {
-            'pdf': 'Density' % (self.sigma_),
+            'pdf': 'Density',
             'cost': 'Cost',
             'amplitude': 'Amplitude',
             'sigma': 'Sigma (mm)'
             }
-        
 
+        if field == 'data':
+            fig = plt.figure(constrained_layout=False, figsize=(6, 4))
 
-        fig = plt.figure(constrained_layout=False, figsize=(10, 4))
-        gs = fig.add_gridspec(nrows=1, 
-                              ncols=2,
-                              wspace=0.50,
-                              hspace=0.3)
+            gs = fig.add_gridspec(nrows=1, 
+                                ncols=2,
+                                wspace=0.50,
+                                hspace=0.3)
+        else:
+            fig = plt.figure(constrained_layout=False, figsize=(10, 4))
+
+            gs = fig.add_gridspec(nrows=1, 
+                                ncols=2,
+                                wspace=0.50,
+                                hspace=0.3)
 
         dnorm = mpl.colors.Normalize(vmin=np.nanmin([self.data.min(), 0]),
                                      vmax=np.nanmax(self.data))
@@ -326,47 +345,65 @@ class FieldModel(object):
                             c=self.data, 
                             cmap='jet', 
                             norm=dnorm)
-        ax1.scatter(self.x[self.mu_], 
-                    self.y[self.mu_], 
-                    c='k', 
-                    s=50)
-        ax1.scatter(self.x[self.gmax], 
-                    self.y[self.gmax], 
-                    c='k', 
-                    s=50,
-                    marker='^')
 
-        ax1.annotate('Mu', (self.x[self.mu_], self.y[self.mu_]), fontsize=15)
-        ax1.annotate('Peak', (self.x[self.gmax], self.y[self.gmax]), fontsize=15)
+        mu_symbols = ['o', '*', 'P']
+        mu_names = [r'Pearson $\rho$', 'LSQ', 'MaxAmp']
+        mean_map = {list(self.mu_.keys())[i]: {'Symbol': mu_symbols[i], 
+                                               'Name': mu_names[i]} for i in np.arange(3)}
 
-        ax1.set_title('Scalar Field', fontsize=15)
+        for j, kind in enumerate(self.mu_.keys()):
+            ax1.scatter(self.x[self.mu_[kind]], self.y[self.mu_[kind]], 
+                        c='k', s=70, 
+                        marker=mean_map[kind]['Symbol'], 
+                        label=mean_map[kind]['Name'])
+        
+        ax1.legend(loc='upper left', fontsize=10, fancybox=True, framealpha=0)
+
+
+        ax1.set_title('Fitted Scalar Field', fontsize=15)
         ax1.set_xlabel('X', fontsize=15)
         ax1.set_ylabel('Y', fontsize=15)
         plt.colorbar(img1, ax=ax1)
 
-        sfield = field_func[field]
-        stitle = field_titles[field]
+        if field != 'data':
+            sfield = field_func[field]
+            stitle = field_titles[field]
 
-        snorm = mpl.colors.Normalize(vmin=np.nanmin(sfield), 
-                                     vmax=np.nanmax(sfield))
+            snorm = mpl.colors.Normalize(vmin=np.nanmin(sfield), 
+                                        vmax=np.nanmax(sfield))
 
-        ax2 = fig.add_subplot(gs[0, 1])
-        img2 = ax2.scatter(self.x, self.y, 
-                            c=sfield, 
-                            cmap='jet', 
-                            norm=snorm)
+            ax2 = fig.add_subplot(gs[0, 1])
+            img2 = ax2.scatter(self.x, self.y, 
+                                c=sfield, 
+                                cmap='jet', 
+                                norm=snorm)
 
-        ax2.set_title(stitle, fontsize=15)
-        ax2.set_xlabel('X', fontsize=15)
-        ax2.set_ylabel('Y', fontsize=15)
-        plt.colorbar(img2, ax=ax2, label=field_labels[field])
+            ax2.set_title(stitle, fontsize=15)
+            ax2.set_xlabel('X', fontsize=15)
+            ax2.set_ylabel('Y', fontsize=15)
+            plt.colorbar(img2, ax=ax2, label=field_labels[field])
 
         return fig
 
-    def get_params(self):
+    def get_params(self, param_names=['mu_lsq', 'sd_lsq', 'a_lsq', 'r_lsq']):
 
         """
-        Return parameters as dictionary.
+        Return requested parameters as Pandas DataFrame.
+
+        Fitted values include: 
+            mean ('m')
+            sigma ('sd')
+            signal ('r')
+            amplitude ('a')
+
+        along with the three cost functions:
+            minimum correlation cost ('opt')
+            minimized least-squared ('lsq')
+            maximum amplitude ('amp')
+        
+        Supplied parameter names must be a combination of value and cost:
+            e.g. 'm_lsq', 'sd_amp', 'r_opt', etc.
+
 
         Returns:
         - - - -
@@ -377,15 +414,20 @@ class FieldModel(object):
 
         assert self.fitted, 'Must fit model before writing coefficients.'
 
-        param_names=['mu', 'amplitude', 'sigma', 'cost', 'w_signal', 'signal']
+        param_vars = ['mu_opt', 'mu_lsq', 'mu_amp', 
+                       'sd_opt', 'sd_lsq', 'sd_amp',
+                       'a_opt', 'a_lsq', 'a_amp', 
+                       'r_opt', 'r_lsq', 'r_amp']
+        
+        param_vals = [self.mu_['opt'], self.mu_['lsq'], self.mu_['amp'],
+                      self.sigma_['opt'], self.sigma_['lsq'], self.sigma_['amp'],
+                      self.amplitude_['opt'], self.amplitude_['lsq'], self.amplitude_['amp'],
+                      self.signal_['opt'], self.signal_['lsq'], self.signal_['amp']]
 
-        param_vals = [self.mu_, self.amplitude_, self.sigma_,
-                      self.costs_[self.mu_], self.weight(), self.data[self.mu_]]
+        param_map = dict(zip(param_vars, param_vals))
 
-        param_vals = [[x] for x in param_vals]
-
-        param_map = dict(zip(param_names, param_vals))
-        df = pd.DataFrame(param_map)
+        params = {pn: [param_map[pn]] for pn in param_names if pn in param_vars}
+        df = pd.DataFrame(params)
 
         return df
 

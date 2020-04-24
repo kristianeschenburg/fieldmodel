@@ -67,12 +67,11 @@ def geodesic(dists, params):
     """
 
     if len(params) == 1:
-
         g = np.exp(-1*(dists**2) / (2*params[0]**2))
     
     else:
         g = params[0] * np.exp(-1*(dists**2) / (2*params[1]**2))
-
+    
     g = g/g.sum()
 
     return g
