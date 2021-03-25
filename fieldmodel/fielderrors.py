@@ -28,7 +28,7 @@ def pearson(sfield, prob):
     # compute Pearson distance
     merror = cdist(s, p, metric='correlation')
 
-    return merror
+    return merror.ravel()
 
 def kendall(sfield, prob):
 
@@ -56,7 +56,7 @@ def kendall(sfield, prob):
     K = kendalltau(s, p)
     merror = 1-K[0]
 
-    return merror
+    return merror.ravel()
 
 def spearman(sfield, prob):
 
@@ -84,7 +84,7 @@ def spearman(sfield, prob):
     S = spearmanr(s, p)
     merror = 1-S[0]
 
-    return merror
+    return merror.ravel()
 
 def L2(sfield, prob):
 
@@ -111,7 +111,7 @@ def L2(sfield, prob):
     merror = s-p
     merror = (merror**2).sum()
 
-    return merror
+    return merror.ravel()
 
 def L1(sfield, prob):
 
@@ -138,4 +138,4 @@ def L1(sfield, prob):
     merror = np.abs(s-p)
     merror = merror.sum()
 
-    return merror
+    return merror.ravel()

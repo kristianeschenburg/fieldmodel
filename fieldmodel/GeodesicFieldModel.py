@@ -192,8 +192,7 @@ class FieldModel(object):
             distance of current index to all other indices
         """
 
-        a0 = [self.r*2]
-
+        a0 = np.asarray([self.r*2])
         bds = Bounds(0.5, self.up)
 
         T = minimize(self.error, a0,
